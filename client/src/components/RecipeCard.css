@@ -1,0 +1,87 @@
+.recipe-card {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  margin-bottom: 1.5rem;
+}
+
+.recipe-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+.recipe-card-body {
+  padding: 1.5rem;
+}
+
+.recipe-title {
+  margin: 0 0 0.5rem 0;
+  color: var(--dark-color);
+  font-size: 1.5rem;
+}
+
+.recipe-location {
+  color: #666;
+  margin-bottom: 1rem;
+  font-style: italic;
+}
+
+.recipe-rating {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.star {
+  font-size: 1.2rem;
+  margin-right: 2px;
+}
+
+.star.full {
+  color: var(--warning-color);
+}
+
+.star.half {
+  color: var(--warning-color);
+  position: relative;
+}
+
+.star.empty {
+  color: #ddd;
+}
+
+.rating-value {
+  margin-left: 0.5rem;
+  color: #666;
+}
+
+.recipe-preview {
+  margin-bottom: 1.5rem;
+  color: #444;
+}
+
+.recipe-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.favorite-btn {
+  background-color: white;
+  color: var(--dark-color);
+  border: 1px solid var(--primary-color);
+}
+
+.favorite-btn.favorited {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+@media (max-width: 768px) {
+  .recipe-actions {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .recipe-actions .btn {
+    width: 100%;
+  }
+} 

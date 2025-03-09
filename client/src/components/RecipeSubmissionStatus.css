@@ -1,0 +1,51 @@
+.submission-status {
+  padding: 1.5rem;
+  border-radius: 10px;
+  margin-bottom: 2rem;
+}
+
+.submission-status h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.4rem;
+}
+
+.submission-status p {
+  margin-bottom: 1rem;
+}
+
+.submission-status.loading {
+  background-color: #f3f4f6;
+  color: #666;
+  text-align: center;
+  padding: 2rem;
+}
+
+.submission-status.error {
+  background-color: #fff5f5;
+  color: #c53030;
+  border: 1px solid #fed7d7;
+}
+
+.submission-status.pending {
+  background-color: #ebf4ff;
+  color: #2b6cb0;
+  border: 1px solid #bee3f8;
+}
+
+.submission-status.approved {
+  background-color: #f0fff4;
+  color: #2f855a;
+  border: 1px solid #c6f6d5;
+}
+
+.submission-status.rejected {
+  background-color: #fff5f5;
+  color: #c53030;
+  border: 1px solid #fed7d7;
+}
+
+.status-info {
+  font-size: 0.9rem;
+  font-style: italic;
+} 

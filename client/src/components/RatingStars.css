@@ -1,0 +1,40 @@
+.rating-stars-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 1rem 0;
+}
+
+.rating-stars {
+  display: flex;
+  justify-content: center;
+}
+
+.rating-star-btn {
+  background-color: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  font-size: 2rem;
+  padding: 0 0.2rem;
+  transition: color 0.2s ease;
+}
+
+.rating-star-btn .star {
+  color: #ddd;
+  transition: color 0.2s ease;
+}
+
+.rating-star-btn.filled .star {
+  color: var(--warning-color);
+}
+
+.rating-star-btn:hover {
+  transform: scale(1.1);
+}
+
+.rating-label {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: #666;
+} 

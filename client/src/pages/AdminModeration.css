@@ -1,0 +1,136 @@
+.admin-moderation {
+  padding: 1rem 0;
+}
+
+.admin-moderation h1 {
+  margin-bottom: 1rem;
+  color: var(--dark-color);
+}
+
+.queue-info {
+  font-size: 1.1rem;
+  color: #666;
+  margin-bottom: 2rem;
+}
+
+.empty-queue {
+  text-align: center;
+  padding: 3rem;
+  background-color: #f8f9fa;
+  border-radius: 10px;
+}
+
+.empty-queue p {
+  margin-bottom: 1.5rem;
+  font-size: 1.2rem;
+  color: #666;
+}
+
+.moderation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.moderation-card {
+  background-color: white;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.moderation-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.moderation-header h2 {
+  margin: 0 0 0.5rem 0;
+  color: var(--dark-color);
+}
+
+.recipe-location {
+  font-style: italic;
+  color: #666;
+}
+
+.moderation-details {
+  padding: 1.5rem;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.preview-link {
+  color: var(--primary-color);
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+.moderation-actions {
+  padding: 1.5rem;
+}
+
+.notes-field {
+  margin-bottom: 1.5rem;
+}
+
+.notes-field label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.notes-field textarea {
+  width: 100%;
+  height: 100px;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  resize: vertical;
+}
+
+.moderation-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.btn-approve {
+  background-color: #2e7d32;
+}
+
+.btn-approve:hover {
+  background-color: #1b5e20;
+}
+
+.btn-reject {
+  background-color: #c62828;
+}
+
+.btn-reject:hover {
+  background-color: #b71c1c;
+}
+
+.error-container {
+  text-align: center;
+  padding: 2rem;
+}
+
+@media (max-width: 768px) {
+  .moderation-details {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .moderation-buttons {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .moderation-buttons .btn {
+    width: 100%;
+  }
+} 

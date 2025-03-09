@@ -1,0 +1,57 @@
+.favorites-page {
+  padding: 1rem 0;
+}
+
+.favorites-page h1 {
+  margin-bottom: 0.5rem;
+  color: var(--dark-color);
+}
+
+.favorites-intro {
+  margin-bottom: 2rem;
+  color: #666;
+}
+
+.favorites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.loading, .error-message, .no-favorites {
+  text-align: center;
+  padding: 3rem;
+  background-color: #f8f9fa;
+  border-radius: 10px;
+  margin: 2rem 0;
+}
+
+.loading {
+  color: #666;
+}
+
+.error-message {
+  color: var(--danger-color);
+}
+
+.no-favorites {
+  color: #666;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.no-favorites p {
+  margin: 0;
+}
+
+.no-favorites .btn {
+  margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+  .favorites-grid {
+    grid-template-columns: 1fr;
+  }
+} 

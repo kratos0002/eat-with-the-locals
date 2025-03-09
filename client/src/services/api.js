@@ -1,18 +1,10 @@
 import axios from 'axios';
 
-// Get the current port from the window location
-const getServerPort = () => {
-  // We'll try to detect if the server is running on a different port
-  // For now, we'll assume 5000
-  return 5000;
-};
-
-// Base server URL
-const SERVER_URL = `http://localhost:${getServerPort()}`;
+// Use the deployed Render API URL
+const SERVER_URL = 'https://eat-with-the-locals.onrender.com';
 
 // Create API client with baseURL
 const api = axios.create({
-  // For direct requests, don't use /api prefix
   baseURL: SERVER_URL,
   timeout: 10000,
   headers: {

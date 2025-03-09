@@ -1,1 +1,1 @@
-web: cd server && npm install && npm start 
+web: bash server/render-start.sh 

@@ -12,7 +12,19 @@ const cors = require('cors');
 const morgan = require('morgan');
 const bodyParser = require('body-parser');
 const path = require('path');
-const { testConnection } = require('./db/supabase');
+
+// Try to load Supabase connection but don't fail if it's not available
+let testConnection = async () => {
+  console.log('Supabase connection test skipped (module not available)');
+  return false;
+};
+
+try {
+  const supabaseModule = require('./db/supabase');
+  testConnection = supabaseModule.testConnection || testConnection;
+} catch (error) {
+  console.error('Error loading Supabase module, continuing without it:', error.message);
+}
 
 // Set environment for Render deployment
 if (process.env.RENDER) {

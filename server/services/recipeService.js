@@ -12,71 +12,79 @@ const EARTH_RADIUS_KM = 6371; // Earth radius in kilometers
  */
 async function getRecipesNearLocation(lat, lng, radius = SEARCH_RADIUS_KM) {
   return new Promise((resolve, reject) => {
-    // Calculate bounding box for quick filtering
-    const latRadian = lat * Math.PI / 180;
-    const latDelta = radius / EARTH_RADIUS_KM;
-    const lngDelta = radius / (EARTH_RADIUS_KM * Math.cos(latRadian));
-    
-    const minLat = lat - latDelta * 180 / Math.PI;
-    const maxLat = lat + latDelta * 180 / Math.PI;
-    const minLng = lng - lngDelta * 180 / Math.PI;
-    const maxLng = lng + lngDelta * 180 / Math.PI;
-
-    // Query to find recipes within the bounding box
-    const query = `
-      SELECT *, 
-        (6371 * acos(cos(radians(?)) * cos(radians(location_lat)) * cos(radians(location_lng) - radians(?)) + sin(radians(?)) * sin(radians(location_lat)))) AS distance
-      FROM recipes
-      WHERE location_lat BETWEEN ? AND ?
-        AND location_lng BETWEEN ? AND ?
-        AND is_approved = 1
-      HAVING distance < ?
-      ORDER BY distance
-    `;
-
-    db.all(query, [lat, lng, lat, minLat, maxLat, minLng, maxLng, radius], async (err, recipes) => {
-      if (err) {
-        console.error('Error fetching recipes from database:', err.message);
-        return reject(err);
+    try {
+      // Validate input
+      if (isNaN(parseFloat(lat)) || isNaN(parseFloat(lng))) {
+        return reject(new Error('Invalid latitude or longitude values'));
       }
       
-      try {
-        // If we have enough recipes from our database, return them
-        if (recipes.length >= 5) {
+      const parsedLat = parseFloat(lat);
+      const parsedLng = parseFloat(lng);
+      const parsedRadius = isNaN(parseFloat(radius)) ? SEARCH_RADIUS_KM : parseFloat(radius);
+
+      // Calculate bounding box for quick filtering
+      const latRadian = parsedLat * Math.PI / 180;
+      const latDelta = parsedRadius / EARTH_RADIUS_KM;
+      const lngDelta = parsedRadius / (EARTH_RADIUS_KM * Math.cos(latRadian));
+      
+      const minLat = parsedLat - latDelta * 180 / Math.PI;
+      const maxLat = parsedLat + latDelta * 180 / Math.PI;
+      const minLng = parsedLng - lngDelta * 180 / Math.PI;
+      const maxLng = parsedLng + lngDelta * 180 / Math.PI;
+
+      console.log(`Searching for recipes near lat:${parsedLat}, lng:${parsedLng}, radius:${parsedRadius}km`);
+      console.log(`Bounding box: minLat:${minLat}, maxLat:${maxLat}, minLng:${minLng}, maxLng:${maxLng}`);
+
+      // Query to find recipes within the bounding box
+      const query = `
+        SELECT *, 
+          (6371 * acos(cos(radians(?)) * cos(radians(location_lat)) * cos(radians(location_lng) - radians(?)) + sin(radians(?)) * sin(radians(location_lat)))) AS distance
+        FROM recipes
+        WHERE location_lat BETWEEN ? AND ?
+          AND location_lng BETWEEN ? AND ?
+          AND is_approved = 1
+        HAVING distance < ?
+        ORDER BY distance
+      `;
+
+      db.all(query, [parsedLat, parsedLng, parsedLat, minLat, maxLat, minLng, maxLng, parsedRadius], async (err, recipes) => {
+        if (err) {
+          console.error('Error fetching recipes from database:', err.message);
+          return reject(err);
+        }
+        
+        console.log(`Found ${recipes.length} recipes in database`);
+        
+        try {
+          // If we have enough recipes from our database, return them
+          if (recipes.length >= 5) {
+            return resolve(recipes);
+          }
+          
+          // If not enough recipes, try to generate mock data
+          const cityName = await reverseGeocode(parsedLat, parsedLng);
+          if (cityName) {
+            const mockRecipes = generateMockRecipes(cityName, parsedLat, parsedLng);
+            
+            if (mockRecipes && mockRecipes.length > 0) {
+              // Combine database recipes with mock recipes
+              const combinedRecipes = [...recipes, ...mockRecipes];
+              return resolve(combinedRecipes);
+            }
+          }
+          
+          // If we got here, just return whatever we have from the database
+          return resolve(recipes);
+        } catch (error) {
+          console.error('Error in hybrid recipe fetching:', error);
+          // If API fetching fails, return what we have from the database
           return resolve(recipes);
         }
-        
-        // Check if we have cached recipes for this location
-        const cachedRecipes = await checkCachedRecipes(lat, lng);
-        if (cachedRecipes && cachedRecipes.length > 0) {
-          // Combine database recipes with cached recipes
-          const combinedRecipes = [...recipes, ...cachedRecipes];
-          return resolve(combinedRecipes);
-        }
-        
-        // If still not enough recipes, fetch from API
-        const cityName = await reverseGeocode(lat, lng);
-        if (cityName) {
-          const apiRecipes = await fetchRecipesFromAPI(cityName);
-          
-          // Cache the API results
-          if (apiRecipes && apiRecipes.length > 0) {
-            await cacheRecipesForLocation(cityName, lat, lng, apiRecipes);
-            
-            // Add API recipes to our database recipes
-            const combinedRecipes = [...recipes, ...apiRecipes];
-            return resolve(combinedRecipes);
-          }
-        }
-        
-        // If we got here, just return whatever we have from the database
-        return resolve(recipes);
-      } catch (error) {
-        console.error('Error in hybrid recipe fetching:', error);
-        // If API fetching fails, return what we have from the database
-        return resolve(recipes);
-      }
-    });
+      });
+    } catch (error) {
+      console.error('Unexpected error in getRecipesNearLocation:', error);
+      return reject(error);
+    }
   });
 }
 
@@ -148,7 +156,12 @@ async function cacheRecipesForLocation(locationName, lat, lng, recipes) {
  */
 async function reverseGeocode(lat, lng) {
   try {
-    const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10`);
+    console.log(`Attempting to reverse geocode lat:${lat}, lng:${lng}`);
+    const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10`, {
+      headers: {
+        'User-Agent': 'Eat-With-The-Locals/1.0'
+      }
+    });
     
     if (response.data && response.data.address) {
       // Try to get the city, town, or village name
@@ -157,11 +170,12 @@ async function reverseGeocode(lat, lng) {
                       response.data.address.village || 
                       response.data.address.county;
       
+      console.log(`Reverse geocoding result: ${cityName}`);
       return cityName;
     }
     return null;
   } catch (error) {
-    console.error('Error in reverse geocoding:', error);
+    console.error('Error in reverse geocoding:', error.message);
     return null;
   }
 }
@@ -193,19 +207,23 @@ async function fetchRecipesFromAPI(cityName) {
  * Generate mock recipes for demonstration
  * In a real implementation, this would be replaced with actual API calls
  */
-function generateMockRecipes(cityName) {
+function generateMockRecipes(cityName, lat, lng) {
   const recipes = [];
+  console.log(`Generating mock recipes for ${cityName}`);
   
   // Generate 3 mock recipes
   for (let i = 1; i <= 3; i++) {
     recipes.push({
+      id: `mock-${cityName.toLowerCase().replace(/\s+/g, '-')}-${i}`,
       name: `${cityName} Special Dish ${i}`,
       ingredients: `Ingredient 1, Ingredient 2, Ingredient 3, Local ${cityName} spices`,
       instructions: `1. Step one for ${cityName} recipe.\n2. Step two for ${cityName} recipe.\n3. Step three for ${cityName} recipe.\n4. Serve hot and enjoy!`,
       location_name: `${cityName}`,
-      location_lat: 0, // These would be set correctly in a real implementation
-      location_lng: 0,
-      source_type: 'api'
+      location_lat: lat,
+      location_lng: lng,
+      source_type: 'api',
+      is_approved: 1,
+      distance: 0.5 * i  // Fake distance in km
     });
   }
   

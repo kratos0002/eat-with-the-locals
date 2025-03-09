@@ -1,16 +1,34 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-// Create a database connection
-const dbPath = path.resolve(__dirname, 'eatWithLocals.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error connecting to database:', err.message);
-  } else {
-    console.log('Connected to the SQLite database.');
-    initializeDatabase();
-  }
-});
+// Check if running in production (Render)
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Configure database connection
+let db;
+if (isProduction) {
+  console.log('Running in production mode - using in-memory SQLite database');
+  // Use in-memory database for production to avoid filesystem issues on Render
+  db = new sqlite3.Database(':memory:', (err) => {
+    if (err) {
+      console.error('Error connecting to in-memory database:', err.message);
+    } else {
+      console.log('Connected to in-memory SQLite database.');
+      initializeDatabase();
+    }
+  });
+} else {
+  // Use file-based database for development
+  const dbPath = path.resolve(__dirname, 'eatWithLocals.db');
+  db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+      console.error('Error connecting to database:', err.message);
+    } else {
+      console.log('Connected to the SQLite database at:', dbPath);
+      initializeDatabase();
+    }
+  });
+}
 
 // Initialize database schema
 function initializeDatabase() {

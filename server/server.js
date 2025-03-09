@@ -4,6 +4,11 @@ const morgan = require('morgan');
 const bodyParser = require('body-parser');
 const path = require('path');
 
+// Set environment for Render deployment
+if (process.env.RENDER) {
+  process.env.NODE_ENV = 'production';
+}
+
 // Import routes
 const recipeRoutes = require('./routes/recipes');
 const favoritesRoutes = require('./routes/favorites');
@@ -44,20 +49,27 @@ app.use('/api/ratings', ratingsRoutes);
 
 // Basic route for testing
 app.get('/', (req, res) => {
-  res.json({ message: 'Welcome to Eat with the Locals API' });
+  res.json({ 
+    message: 'Welcome to Eat with the Locals API',
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
+  console.error('Server Error:', err.stack);
+  res.status(500).json({ 
+    error: 'Something went wrong!',
+    message: err.message
+  });
 });
 
 // Function to find an available port
 const startServer = (port) => {
   const server = app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
-    console.log(`CORS is enabled for all origins in development mode`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`CORS is enabled for all origins`);
   });
   
   server.on('error', (error) => {

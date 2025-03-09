@@ -1,8 +1,18 @@
+// Load environment variables
+try {
+  require('dotenv').config();
+} catch (error) {
+  console.error('Error loading dotenv, continuing without it:', error.message);
+  // Create a minimal process.env object if needed
+  process.env = process.env || {};
+}
+
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const bodyParser = require('body-parser');
 const path = require('path');
+const { testConnection } = require('./db/supabase');
 
 // Set environment for Render deployment
 if (process.env.RENDER) {
@@ -17,6 +27,19 @@ const ratingsRoutes = require('./routes/ratings');
 // Initialize express app
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Test the Supabase connection
+testConnection()
+  .then(connected => {
+    if (connected) {
+      console.log('Successfully connected to Supabase');
+    } else {
+      console.warn('Warning: Supabase connection failed, some features may not work correctly');
+    }
+  })
+  .catch(error => {
+    console.error('Error testing Supabase connection:', error);
+  });
 
 // Simple CORS middleware that allows all origins
 app.use((req, res, next) => {
@@ -51,7 +74,8 @@ app.use('/api/ratings', ratingsRoutes);
 app.get('/', (req, res) => {
   res.json({ 
     message: 'Welcome to Eat with the Locals API',
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    databaseType: 'Supabase PostgreSQL'
   });
 });
 
@@ -69,6 +93,7 @@ const startServer = (port) => {
   const server = app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Database: Supabase PostgreSQL`);
     console.log(`CORS is enabled for all origins`);
   });
   

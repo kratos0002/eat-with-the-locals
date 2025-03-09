@@ -1,4 +1,11 @@
-require('dotenv').config();
+// Try to load environment variables, but don't fail if dotenv is missing
+try {
+  require('dotenv').config();
+} catch (error) {
+  console.log('Dotenv not available, using environment variables directly');
+}
+
+const path = require('path');
 const { supabase } = require('./supabase');
 const { getStaticCuratedRecipes } = require('../services/curatedRecipes');
 

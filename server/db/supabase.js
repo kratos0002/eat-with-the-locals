@@ -1,4 +1,10 @@
-require('dotenv').config();
+// Try to load environment variables, but don't fail if dotenv is missing
+try {
+  require('dotenv').config();
+} catch (error) {
+  console.log('Dotenv not available, using environment variables directly');
+}
+
 const { createClient } = require('@supabase/supabase-js');
 
 // Initialize Supabase client

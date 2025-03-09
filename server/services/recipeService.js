@@ -1,42 +1,341 @@
-const db = require('../db/database');
+const { supabase } = require('../db/supabase');
 const axios = require('axios');
+const { getStaticCuratedRecipes } = require('./curatedRecipes');
+const perplexityService = require('./perplexityService');
 
 // Constants
 const SEARCH_RADIUS_KM = 50; // Search radius for finding nearby recipes
 const EARTH_RADIUS_KM = 6371; // Earth radius in kilometers
 
 /**
- * Get recipes near a location with a simple approach that works in production
+ * Get a recipe by ID with its variants
+ * @param {string} recipeId - The ID of the recipe to fetch
+ * @returns {Object} Recipe with variants
+ */
+async function getRecipeById(recipeId) {
+  try {
+    console.log(`Fetching recipe with ID: ${recipeId}`);
+    
+    // Fetch the recipe
+    const { data: recipe, error: recipeError } = await supabase
+      .from('recipes')
+      .select('*')
+      .eq('id', recipeId)
+      .single();
+    
+    if (recipeError) {
+      console.error('Error fetching recipe:', recipeError);
+      throw recipeError;
+    }
+    
+    if (!recipe) {
+      console.log(`Recipe with ID ${recipeId} not found`);
+      throw new Error('Recipe not found');
+    }
+    
+    // Fetch approved variants for this recipe
+    const { data: variants, error: variantsError } = await supabase
+      .from('recipe_variants')
+      .select('*')
+      .eq('parent_recipe_id', recipeId)
+      .eq('status', 'approved');
+    
+    if (variantsError) {
+      console.error('Error fetching recipe variants:', variantsError);
+      // Don't throw here, we can still return the recipe without variants
+    }
+    
+    // Return recipe with variants
+    return {
+      ...recipe,
+      variants: variants || []
+    };
+  } catch (error) {
+    console.error(`Error in getRecipeById: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * Get a city name from coordinates using reverse geocoding
+ */
+async function getCityNameFromCoordinates(lat, lng) {
+  try {
+    // Try to get a city name from OpenStreetMap's Nominatim service
+    const response = await axios.get(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10`,
+      { headers: { 'User-Agent': 'Eat-With-The-Locals-App' } }
+    );
+
+    if (response.data && response.data.address) {
+      // Try to get the city or town or county
+      const cityName = response.data.address.city || 
+                      response.data.address.town || 
+                      response.data.address.village || 
+                      response.data.address.county ||
+                      response.data.address.state;
+      
+      if (cityName) {
+        console.log(`[RecipeService] Found city name from coordinates: ${cityName}`);
+        return cityName;
+      }
+    }
+  } catch (error) {
+    console.error('[RecipeService] Error getting city name from coordinates:', error);
+  }
+
+  // If we couldn't get a city name from geocoding, use a region-based approach
+  if (lat > 30 && lat < 50 && lng > -10 && lng < 30) return "European";
+  if (lat > 20 && lat < 50 && lng > 100 && lng < 150) return "East Asian";
+  if (lat > -40 && lat < 10 && lng > 100 && lng < 160) return "Southeast Asian";
+  if (lat > 10 && lat < 35 && lng > 60 && lng < 90) return "South Asian";
+  if (lat > 25 && lat < 50 && lng > -130 && lng < -60) return "North American";
+  if (lat > -40 && lat < 15 && lng > -90 && lng < -30) return "South American";
+  if (lat > -40 && lat < 40 && lng > 10 && lng < 60) return "African";
+  
+  // If can't determine region, use "Local"
+  return "Local";
+}
+
+/**
+ * Generate generic recipes for a location using Perplexity API
+ */
+async function generateGenericRecipes(cityName, lat, lng) {
+  try {
+    // Check if we have the Perplexity API key
+    if (process.env.PERPLEXITY_API_KEY) {
+      console.log(`[RecipeService] Using Perplexity API to generate recipes for ${cityName}`);
+      
+      // Use the Perplexity service to generate recipes
+      const generatedRecipes = await perplexityService.generateGenericRecipesForLocation(cityName, lat, lng);
+      
+      if (generatedRecipes && generatedRecipes.length > 0) {
+        // Add distance field for consistency with our API
+        return generatedRecipes.map((recipe, index) => ({
+          ...recipe,
+          distance: 0.5 * (index + 1)
+        }));
+      }
+    }
+  } catch (error) {
+    console.error('[RecipeService] Error using Perplexity API:', error);
+  }
+  
+  // Fallback to hardcoded recipes if Perplexity API fails or is not configured
+  console.log(`[RecipeService] Using fallback recipes for ${cityName}`);
+  return generateHardcodedRecipes(cityName, lat, lng);
+}
+
+/**
+ * Generate hardcoded generic recipes for a location
+ */
+function generateHardcodedRecipes(prefix, lat, lng) {
+  // Make sure prefix is a string
+  const cuisinePrefix = prefix ? String(prefix) : "Local";
+  
+  const dishes = [
+    {
+      name: `${cuisinePrefix} Spiced Rice`,
+      ingredients: 'Rice, Vegetables, Spices, Herbs, Olive Oil, Salt',
+      instructions: '1. Cook rice according to package. 2. Sauté vegetables with spices. 3. Mix with rice. 4. Garnish with herbs.',
+      type: 'Main Dish'
+    },
+    {
+      name: `${cuisinePrefix} Grilled Fish`,
+      ingredients: 'Fresh Fish, Lemon, Garlic, Herbs, Olive Oil, Salt, Pepper',
+      instructions: '1. Marinate fish with lemon, garlic, and herbs. 2. Grill until cooked through. 3. Serve with a side of vegetables.',
+      type: 'Seafood'
+    },
+    {
+      name: `${cuisinePrefix} Vegetable Stew`,
+      ingredients: 'Mixed Vegetables, Beans, Tomatoes, Onions, Garlic, Spices, Broth',
+      instructions: '1. Sauté onions and garlic. 2. Add vegetables and spices. 3. Pour in broth and simmer until vegetables are tender. 4. Serve hot.',
+      type: 'Vegetarian'
+    }
+  ];
+  
+  // Generate recipes with proper IDs and location data
+  return dishes.map((dish, index) => ({
+    id: `generic-${cuisinePrefix.toLowerCase()}-${index + 1}`,
+    name: dish.name,
+    ingredients: dish.ingredients,
+    instructions: dish.instructions,
+    location_lat: lat,
+    location_lng: lng,
+    location_name: `${cuisinePrefix} Region`,
+    city: cuisinePrefix,
+    country: 'Various',
+    source_type: 'api',
+    is_approved: true,
+    distance: 0.5 * (index + 1),
+    cuisine_type: dish.type
+  }));
+}
+
+/**
+ * Get recipes near a location with Supabase
  */
 async function getRecipesNearLocation(lat, lng, radius = SEARCH_RADIUS_KM) {
-  return new Promise((resolve, reject) => {
-    try {
-      // Input validation with fallbacks
-      const parsedLat = parseFloat(lat) || 0;
-      const parsedLng = parseFloat(lng) || 0;
-      const parsedRadius = parseFloat(radius) || SEARCH_RADIUS_KM;
+  try {
+    // Input validation with fallbacks
+    const parsedLat = parseFloat(lat) || 0;
+    const parsedLng = parseFloat(lng) || 0;
+    const parsedRadius = parseFloat(radius) || SEARCH_RADIUS_KM;
 
-      console.log(`[RecipeService] Searching for recipes near lat:${parsedLat}, lng:${parsedLng}, radius:${parsedRadius}km`);
+    console.log(`[RecipeService] Searching for recipes near lat:${parsedLat}, lng:${parsedLng}, radius:${parsedRadius}km`);
 
-      // First check if we're near any known cities (simple approach)
-      const nearbyCity = findNearbyCity(parsedLat, parsedLng);
-      if (nearbyCity) {
-        console.log(`[RecipeService] Found nearby city: ${nearbyCity.name}`);
-        return resolve(getCityRecipes(nearbyCity.name, parsedLat, parsedLng));
-      }
+    // First try to get recipes from Supabase within the radius
+    const { data: dbRecipes, error: dbError } = await supabase
+      .from('recipes')
+      .select('*')
+      .eq('is_approved', true)
+      .order('id', { ascending: false });
 
-      // Fallback to generic recipes if no city found
-      console.log(`[RecipeService] No nearby city found, generating generic recipes`);
-      const genericCityName = getCityNameFromCoordinates(parsedLat, parsedLng);
-      const genericRecipes = generateGenericRecipes(genericCityName, parsedLat, parsedLng);
-      return resolve(genericRecipes);
-
-    } catch (error) {
-      console.error('[RecipeService] Error in getRecipesNearLocation:', error);
-      // Return empty array instead of failing completely
-      return resolve([]);
+    if (dbError) {
+      console.error('Error fetching recipes from Supabase:', dbError);
+      // Fall back to static recipes if database query fails
+      return getFallbackRecipes(parsedLat, parsedLng);
     }
-  });
+
+    // If we got recipes from the database, filter by distance
+    if (dbRecipes && dbRecipes.length > 0) {
+      // Calculate distance and filter
+      const nearbyRecipes = dbRecipes
+        .map(recipe => ({
+          ...recipe,
+          distance: calculateDistance(
+            parsedLat, 
+            parsedLng, 
+            recipe.location_lat, 
+            recipe.location_lng
+          )
+        }))
+        .filter(recipe => recipe.distance <= parsedRadius)
+        .sort((a, b) => a.distance - b.distance);
+
+      if (nearbyRecipes.length > 0) {
+        console.log(`[RecipeService] Found ${nearbyRecipes.length} recipes in the database within ${parsedRadius}km`);
+        return nearbyRecipes;
+      }
+    }
+
+    // If no results from the database or not enough, try to generate from API or static data
+    console.log(`[RecipeService] No recipes found in database, checking for nearby cities`);
+    
+    // Check for nearby popular cities
+    const nearbyCity = findNearbyCity(parsedLat, parsedLng);
+    if (nearbyCity) {
+      console.log(`[RecipeService] Found nearby city: ${nearbyCity.name}`);
+      
+      // Try to get cached city recipes first
+      const cachedRecipes = await getCachedCityRecipes(nearbyCity.name);
+      if (cachedRecipes && cachedRecipes.length > 0) {
+        console.log(`[RecipeService] Using cached recipes for ${nearbyCity.name}`);
+        return cachedRecipes;
+      }
+      
+      // If not cached, get static recipes and cache them for next time
+      const cityRecipes = getStaticCityRecipes(nearbyCity.name, parsedLat, parsedLng);
+      if (cityRecipes.length > 0) {
+        // Cache the recipes in Supabase for future use
+        await cacheRecipes(cityRecipes);
+        return cityRecipes;
+      }
+    }
+    
+    // Last resort: generate generic recipes based on region
+    console.log(`[RecipeService] No specific city recipes found, generating generic recipes`);
+    const genericCityName = await getCityNameFromCoordinates(parsedLat, parsedLng);
+    const genericRecipes = await generateGenericRecipes(genericCityName, parsedLat, parsedLng);
+    
+    // Cache the generic recipes
+    await cacheRecipes(genericRecipes);
+    
+    return genericRecipes;
+  } catch (error) {
+    console.error('[RecipeService] Error in getRecipesNearLocation:', error);
+    // Return fallback recipes in case of any error
+    return getFallbackRecipes(lat, lng);
+  }
+}
+
+/**
+ * Cache recipes in Supabase for future use
+ */
+async function cacheRecipes(recipes) {
+  try {
+    if (!recipes || recipes.length === 0) return;
+    
+    // Make sure recipes have proper IDs and approved status
+    const preparedRecipes = recipes.map(recipe => ({
+      ...recipe,
+      id: recipe.id || `generated-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      is_approved: true,
+      source_type: recipe.source_type || 'api'
+    }));
+
+    // Insert recipes into Supabase
+    const { data, error } = await supabase
+      .from('recipes')
+      .upsert(preparedRecipes, { 
+        onConflict: 'name,location_lat,location_lng',
+        ignoreDuplicates: true
+      });
+
+    if (error) {
+      console.error('[RecipeService] Error caching recipes:', error);
+    } else {
+      console.log(`[RecipeService] Successfully cached ${preparedRecipes.length} recipes`);
+    }
+  } catch (error) {
+    console.error('[RecipeService] Error in cacheRecipes:', error);
+  }
+}
+
+/**
+ * Get cached recipes for a city from Supabase
+ */
+async function getCachedCityRecipes(cityName) {
+  try {
+    const { data, error } = await supabase
+      .from('recipes')
+      .select('*')
+      .eq('city', cityName)
+      .eq('is_approved', true);
+
+    if (error) {
+      console.error(`[RecipeService] Error fetching cached recipes for ${cityName}:`, error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('[RecipeService] Error in getCachedCityRecipes:', error);
+    return null;
+  }
+}
+
+/**
+ * Get fallback recipes in case of database failure
+ */
+function getFallbackRecipes(lat, lng) {
+  // Use static curated recipes as an example
+  const curatedRecipes = getStaticCuratedRecipes();
+  
+  if (curatedRecipes && curatedRecipes.length > 0) {
+    // Return a few random recipes from the curated collection
+    const randomRecipes = curatedRecipes.sort(() => 0.5 - Math.random()).slice(0, 3);
+    
+    // Add distance field
+    return randomRecipes.map((recipe, index) => ({
+      ...recipe,
+      distance: 10 + (index * 5), // Random distances
+      id: `fallback-${recipe.city ? recipe.city.toLowerCase() : 'unknown'}-${index}`
+    }));
+  }
+  
+  // If no curated recipes, generate hardcoded ones
+  return generateHardcodedRecipes('Local', lat, lng);
 }
 
 /**
@@ -84,6 +383,10 @@ function findNearbyCity(lat, lng) {
  * Calculate distance between two points using Haversine formula
  */
 function calculateDistance(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) {
+    return Infinity; // Return a large distance if any coordinate is missing
+  }
+  
   const R = EARTH_RADIUS_KM; // Earth's radius in km
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -97,10 +400,10 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 /**
- * Get recipes for a specific city
+ * Get static recipes for a specific city
  */
-function getCityRecipes(cityName, lat, lng) {
-  // Get the curated recipes for this city
+function getStaticCityRecipes(cityName, lat, lng) {
+  // Get all curated recipes
   const allCurated = getStaticCuratedRecipes();
   
   // Filter recipes for this city
@@ -108,7 +411,7 @@ function getCityRecipes(cityName, lat, lng) {
     recipe.city && recipe.city.toLowerCase() === cityName.toLowerCase());
   
   if (cityRecipes.length > 0) {
-    // Return the curated recipes for this city
+    // Add distance and unique IDs to recipes
     return cityRecipes.map(recipe => ({
       ...recipe,
       id: `static-${recipe.city.toLowerCase()}-${recipe.name.toLowerCase().replace(/\s+/g, '-')}`,
@@ -117,303 +420,19 @@ function getCityRecipes(cityName, lat, lng) {
   }
   
   // If no curated recipes, generate mock ones
-  return generateGenericRecipes(cityName, lat, lng);
+  return generateHardcodedRecipes(cityName, lat, lng);
 }
 
-/**
- * Get a city name from coordinates
- */
-function getCityNameFromCoordinates(lat, lng) {
-  // Simple regions based on coordinates
-  if (lat > 30 && lat < 50 && lng > -10 && lng < 30) return "European";
-  if (lat > 20 && lat < 50 && lng > 100 && lng < 150) return "East Asian";
-  if (lat > -40 && lat < 10 && lng > 100 && lng < 160) return "Southeast Asian";
-  if (lat > 10 && lat < 35 && lng > 60 && lng < 90) return "South Asian";
-  if (lat > 25 && lat < 50 && lng > -130 && lng < -60) return "North American";
-  if (lat > -40 && lat < 15 && lng > -90 && lng < -30) return "South American";
-  if (lat > -40 && lat < 40 && lng > 10 && lng < 60) return "African";
-  
-  // If can't determine region, use "Local"
-  return "Local";
-}
-
-/**
- * Generate generic recipes for any location
- */
-function generateGenericRecipes(prefix, lat, lng) {
-  // Make sure prefix is a string
-  const cuisinePrefix = prefix ? String(prefix) : "Local";
-  
-  const dishes = [
-    {
-      name: `${cuisinePrefix} Spiced Rice`,
-      ingredients: 'Rice, Vegetables, Spices, Herbs, Olive Oil, Salt',
-      instructions: '1. Cook rice according to package. 2. Sauté vegetables with spices. 3. Mix with rice. 4. Garnish with herbs.',
-      type: 'Main Dish'
-    },
-    {
-      name: `${cuisinePrefix} Grilled Fish`,
-      ingredients: 'Fresh Fish, Lemon, Garlic, Herbs, Olive Oil, Salt, Pepper',
-      instructions: '1. Marinate fish with lemon, garlic, and herbs. 2. Grill until cooked through. 3. Serve with a side of vegetables.',
-      type: 'Seafood'
-    },
-    {
-      name: `${cuisinePrefix} Vegetable Stew`,
-      ingredients: 'Mixed Vegetables, Beans, Tomatoes, Onions, Garlic, Spices, Broth',
-      instructions: '1. Sauté onions and garlic. 2. Add vegetables and spices. 3. Pour in broth and simmer until vegetables are tender. 4. Serve hot.',
-      type: 'Vegetarian'
-    },
-    {
-      name: `${cuisinePrefix} Sweet Dessert`,
-      ingredients: 'Flour, Sugar, Eggs, Butter, Vanilla, Local Fruits',
-      instructions: '1. Mix flour, sugar, eggs, and butter. 2. Add vanilla and fold in fruits. 3. Bake until golden. 4. Serve warm or cold.',
-      type: 'Dessert'
-    },
-    {
-      name: `${cuisinePrefix} Street Food Wrap`,
-      ingredients: 'Flatbread, Protein of choice, Vegetables, Sauce, Spices',
-      instructions: '1. Cook protein with spices. 2. Warm flatbread. 3. Add protein, vegetables, and sauce. 4. Fold and serve.',
-      type: 'Street Food'
-    }
-  ];
-  
-  // Generate recipes with proper IDs and location data
-  return dishes.map((dish, index) => ({
-    id: `generic-${cuisinePrefix.toLowerCase()}-${index + 1}`,
-    name: dish.name,
-    ingredients: dish.ingredients,
-    instructions: dish.instructions,
-    location_lat: lat,
-    location_lng: lng,
-    location_name: `${cuisinePrefix} Region`,
-    city: cuisinePrefix,
-    country: 'Various',
-    source_type: 'api',
-    is_approved: 1,
-    distance: 0.5 * (index + 1),
-    cuisine_type: dish.type
-  }));
-}
-
-/**
- * Get static curated recipes (hardcoded for reliability)
- */
-function getStaticCuratedRecipes() {
-  return [
-    // Naples, Italy: Pizza Margherita
-    {
-      name: 'Pizza Margherita',
-      ingredients: 'For the dough: 500g Italian 00 flour, 325ml water, 10g salt, 7g fresh yeast\nFor the topping: 400g San Marzano tomatoes, 250g fresh mozzarella (preferably buffalo), Fresh basil leaves, Extra virgin olive oil, Salt',
-      instructions: '1. Make the dough by mixing flour, water, salt, and yeast. Knead for 10-15 minutes until elastic.\n2. Let the dough rise for 2 hours at room temperature.\n3. Divide into 4 balls and let rise another hour.\n4. Preheat oven to the highest temperature (ideally 450-500°F) with a pizza stone if available.\n5. Stretch each dough ball into a thin circle.\n6. Crush tomatoes by hand and spread on dough, leaving a border for the crust.\n7. Tear the mozzarella into pieces and distribute over the tomatoes.\n8. Bake for 4-5 minutes until the crust is charred in spots.\n9. Garnish with fresh basil and drizzle with olive oil before serving.',
-      location_lat: 40.8358,
-      location_lng: 14.2488,
-      location_name: 'Naples, Italy',
-      city: 'Naples',
-      country: 'Italy'
-    },
-    // Milan, Italy: Risotto alla Milanese
-    {
-      name: 'Risotto alla Milanese',
-      ingredients: '320g Carnaroli rice, 1 liter beef stock (kept warm), 1 small onion, finely chopped, 50g butter, 30g bone marrow (optional, but traditional), 100ml dry white wine, 0.5g saffron threads, 60g Parmesan cheese, grated, Salt to taste',
-      instructions: '1. In a heavy-bottomed pot, melt half the butter with bone marrow (if using) and sauté the onion until translucent.\n2. Add rice and toast for 2-3 minutes, stirring constantly.\n3. Add white wine and cook until evaporated.\n4. Begin adding warm stock one ladle at a time, stirring frequently and waiting until liquid is absorbed before adding more.\n5. After 10 minutes, dissolve saffron in a small amount of stock and add to the rice.\n6. Continue cooking and adding stock until rice is al dente (usually 18-20 minutes total).\n7. Remove from heat, add remaining butter and Parmesan cheese.\n8. Cover and let rest for 2 minutes, then stir vigorously to create a creamy texture.\n9. Serve immediately, with additional Parmesan if desired.',
-      location_lat: 45.4642,
-      location_lng: 9.1900,
-      location_name: 'Milan, Italy',
-      city: 'Milan',
-      country: 'Italy'
-    },
-    // Mumbai, India: Vada Pav
-    {
-      name: 'Vada Pav',
-      ingredients: 'For the vada: 4 large potatoes (boiled and mashed), 2 green chilies (finely chopped), 1 inch ginger (grated), 2 cloves garlic (minced), 1 tsp mustard seeds, 1 sprig curry leaves, 1/2 tsp turmeric powder, 1 tbsp vegetable oil, Salt to taste\nFor the batter: 1 cup gram flour (besan), 1/4 tsp turmeric powder, 1/2 tsp red chili powder, 1 pinch asafoetida (hing), Salt to taste, Water as needed\nFor serving: 8 pav buns, Green chutney, Tamarind chutney, Dry garlic chutney, Oil for deep frying',
-      instructions: '1. Heat oil in a pan, add mustard seeds and let them splutter.\n2. Add curry leaves, green chilies, ginger, and garlic. Sauté for a minute.\n3. Add turmeric powder and mashed potatoes. Mix well and cook for 2-3 minutes.\n4. Season with salt and let the mixture cool. Shape into round patties.\n5. Prepare the batter by mixing gram flour with spices and enough water to make a thick coating batter.\n6. Heat oil for deep frying. Dip each potato patty in the batter and deep fry until golden brown.\n7. Slice pav buns horizontally without separating completely. Spread chutneys inside.\n8. Place the hot vada inside the pav, and serve immediately.',
-      location_lat: 19.0760,
-      location_lng: 72.8777,
-      location_name: 'Mumbai, India',
-      city: 'Mumbai',
-      country: 'India'
-    },
-    // Mumbai, India: Pav Bhaji
-    {
-      name: 'Pav Bhaji',
-      ingredients: '4 medium potatoes (boiled and mashed), 1 cup cauliflower (boiled and chopped), 1/2 cup peas, 2 carrots (boiled and chopped), 2 large onions (finely chopped), 2 tomatoes (finely chopped), 2 bell peppers (finely chopped), 2-3 tbsp pav bhaji masala, 1 tsp red chili powder, 1 tsp turmeric powder, 2 tbsp butter, 1 lemon, Fresh coriander leaves, 8 pav buns, Salt to taste',
-      instructions: '1. Heat butter in a large pan. Add half the chopped onions and sauté until golden brown.\n2. Add bell peppers and cook for 2 minutes. Add tomatoes, salt, turmeric powder, red chili powder, and pav bhaji masala.\n3. Cook until tomatoes are soft and oil begins to separate.\n4. Add all the boiled and mashed vegetables and mix well. Add a little water if needed.\n5. Mash the mixture with a potato masher while cooking, until you get a smooth consistency.\n6. Simmer for 15-20 minutes, adjusting salt and spices to taste.\n7. Heat a flat pan, slice the pav buns, and toast them with butter until crispy.\n8. Serve the bhaji hot, topped with remaining raw onions, coriander leaves, and a squeeze of lemon juice, with buttered pav on the side.',
-      location_lat: 19.0760,
-      location_lng: 72.8777,
-      location_name: 'Mumbai, India',
-      city: 'Mumbai',
-      country: 'India'
-    }
-  ];
-}
-
-/**
- * Check if we have cached recipes for a location
- */
-async function checkCachedRecipes(lat, lng) {
-  return new Promise((resolve, reject) => {
-    // Calculate a reasonable distance (5km) to consider the same location
-    const distance = 5;
-    
-    const query = `
-      SELECT recipe_data
-      FROM recipe_cache
-      WHERE (6371 * acos(cos(radians(?)) * cos(radians(location_lat)) * cos(radians(location_lng) - radians(?)) + sin(radians(?)) * sin(radians(location_lat)))) < ?
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-    
-    db.get(query, [lat, lng, lat, distance], (err, row) => {
-      if (err) {
-        console.error('Error checking cached recipes:', err.message);
-        return resolve([]);
-      }
-      
-      if (row && row.recipe_data) {
-        try {
-          const recipes = JSON.parse(row.recipe_data);
-          return resolve(recipes);
-        } catch (error) {
-          console.error('Error parsing cached recipe data:', error);
-          return resolve([]);
-        }
-      }
-      
-      return resolve([]);
-    });
-  });
-}
-
-/**
- * Cache recipes for a location
- */
-async function cacheRecipesForLocation(locationName, lat, lng, recipes) {
-  return new Promise((resolve, reject) => {
-    const recipeData = JSON.stringify(recipes);
-    
-    const query = `
-      INSERT INTO recipe_cache (location_name, location_lat, location_lng, recipe_data)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(location_name) DO UPDATE SET
-        recipe_data = ?,
-        created_at = CURRENT_TIMESTAMP
-    `;
-    
-    db.run(query, [locationName, lat, lng, recipeData, recipeData], function(err) {
-      if (err) {
-        console.error('Error caching recipes:', err.message);
-        return reject(err);
-      }
-      
-      return resolve(this.lastID);
-    });
-  });
-}
-
-/**
- * Get the city name for coordinates using reverse geocoding
- */
-async function reverseGeocode(lat, lng) {
-  try {
-    console.log(`Attempting to reverse geocode lat:${lat}, lng:${lng}`);
-    const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10`, {
-      headers: {
-        'User-Agent': 'Eat-With-The-Locals/1.0'
-      }
-    });
-    
-    if (response.data && response.data.address) {
-      // Try to get the city, town, or village name
-      const cityName = response.data.address.city || 
-                      response.data.address.town || 
-                      response.data.address.village || 
-                      response.data.address.county;
-      
-      console.log(`Reverse geocoding result: ${cityName}`);
-      return cityName;
-    }
-    return null;
-  } catch (error) {
-    console.error('Error in reverse geocoding:', error.message);
-    return null;
-  }
-}
-
-/**
- * Fetch recipes from an external API
- * Note: In a real implementation, you would use your chosen API provider
- * For this example, we'll simulate a response
- */
-async function fetchRecipesFromAPI(cityName) {
-  try {
-    // This is a placeholder - in a real implementation, you would call an actual API
-    // For example, Perplexity API or another recipe API
-    
-    // Mock API call for demonstration purposes
-    // await axios.get(`https://api.example.com/recipes?location=${encodeURIComponent(cityName)}`);
-    
-    // Generate mock recipes based on the city name
-    const mockRecipes = generateMockRecipes(cityName);
-    
-    return mockRecipes;
-  } catch (error) {
-    console.error('Error fetching recipes from API:', error);
-    return [];
-  }
-}
-
-/**
- * Generate mock recipes for demonstration
- * In a real implementation, this would be replaced with actual API calls
- */
-function generateMockRecipes(cityName, lat, lng) {
-  const recipes = [];
-  console.log(`Generating mock recipes for ${cityName}`);
-  
-  // Generate 3 mock recipes
-  for (let i = 1; i <= 3; i++) {
-    recipes.push({
-      id: `mock-${cityName.toLowerCase().replace(/\s+/g, '-')}-${i}`,
-      name: `${cityName} Special Dish ${i}`,
-      ingredients: `Ingredient 1, Ingredient 2, Ingredient 3, Local ${cityName} spices`,
-      instructions: `1. Step one for ${cityName} recipe.\n2. Step two for ${cityName} recipe.\n3. Step three for ${cityName} recipe.\n4. Serve hot and enjoy!`,
-      location_name: `${cityName}`,
-      location_lat: lat,
-      location_lng: lng,
-      source_type: 'api',
-      is_approved: 1,
-      distance: 0.5 * i  // Fake distance in km
-    });
-  }
-  
-  return recipes;
-}
-
-/**
- * Add a user-submitted recipe to the moderation queue
- */
-async function submitRecipeForModeration(recipeData) {
-  return { id: 'mock-id', message: 'Recipe submitted for moderation' };
-}
-
-/**
- * Get recipes in the moderation queue
- */
-async function getModerationQueue() {
-  return [];
-}
-
-/**
- * Approve or reject a recipe in the moderation queue
- */
-async function moderateRecipe(moderationId, status, reviewerId, notes) {
-  return { message: `Recipe ${status}`, recipe_id: moderationId };
-}
-
-// Export methods
 module.exports = {
   getRecipesNearLocation,
-  submitRecipeForModeration,
-  getModerationQueue,
-  moderateRecipe
+  getRecipeById,
+  getCityNameFromCoordinates,
+  generateGenericRecipes,
+  cacheRecipes,
+  calculateDistance,
+  getStaticCityRecipes,
+  getFallbackRecipes,
+  findNearbyCity,
+  getCachedCityRecipes,
+  generateHardcodedRecipes
 }; 
